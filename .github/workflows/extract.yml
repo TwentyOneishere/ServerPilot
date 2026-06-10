@@ -1,15 +1,12 @@
 name: Extract ZIP
 on: push
-permissions:
-  contents: write
-  workflows: write
 jobs:
   extract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
       - run: |
           unzip "ServerPilot_FIXED (1).zip" -d extracted
           cp -r extracted/ServerPilot/. .
