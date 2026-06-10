@@ -1,0 +1,110 @@
+name: Build ServerPilot APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Java 17 ─────────────────────────────────────────────────────────
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 3. Node 18 ─────────────────────────────────────────────────────────
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      # ── 4. npm install ─────────────────────────────────────────────────────
+      # TREBUIE sa fie inaintea oricarui pas Gradle.
+      # settings.gradle ruleaza includeBuild("../node_modules/@react-native/gradle-plugin")
+      # si autolinkLibrariesFromCommand() in faza de CONFIGURARE Gradle.
+      # Daca node_modules nu exista la acel moment = build fail instant.
+      - name: Install npm dependencies
+        run: npm install --legacy-peer-deps
+
+      # ── 5. gradle-wrapper.jar ──────────────────────────────────────────────
+      # gradle-wrapper.jar nu e committed in repo (in .gitignore implicit).
+      # Il descarcam de pe raw.githubusercontent.com - sursa directa, fara redirect.
+      # Tag v8.6.0 exista pe repo-ul gradle (conventia lor e vX.Y.Z din 2020+).
+      - name: Download gradle-wrapper.jar
+        run: |
+          mkdir -p android/gradle/wrapper
+          curl -fsSL \
+            "https://raw.githubusercontent.com/gradle/gradle/v8.6.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o android/gradle/wrapper/gradle-wrapper.jar
+          SIZE=$(wc -c < android/gradle/wrapper/gradle-wrapper.jar)
+          echo "gradle-wrapper.jar: ${SIZE} bytes"
+          if [ "${SIZE}" -lt 50000 ]; then
+            echo "ERROR: JAR invalid (${SIZE} bytes) - continut:"
+            head -3 android/gradle/wrapper/gradle-wrapper.jar
+            exit 1
+          fi
+
+      # ── 6. gradlew executabil ──────────────────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # ── 7. Debug keystore ──────────────────────────────────────────────────
+      - name: Generate debug keystore
+        run: |
+          if [ ! -f android/app/debug.keystore ]; then
+            keytool -genkey -v \
+              -keystore android/app/debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # ── 8. Cache Gradle ────────────────────────────────────────────────────
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      # ── 9. Build APK ───────────────────────────────────────────────────────
+      - name: Build Debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m"
+
+      # ── 10. Upload APK ─────────────────────────────────────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ServerPilot-debug-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      # ── 11. APK Info ───────────────────────────────────────────────────────
+      - name: APK Info
+        if: success()
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          echo "✅ BUILD REUSIT!"
+          echo "📦 Size: $(du -sh $APK | cut -f1)"
