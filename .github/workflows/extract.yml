@@ -6,7 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          unzip "ServerPilot_FIXED (1).zip" -d extracted
+          unzip "ServerPilot_FIXED.zip" -d extracted
           cp -r extracted/ServerPilot/. .
           rm -rf extracted "ServerPilot_FIXED (1).zip"
           git config user.name "github-actions"
